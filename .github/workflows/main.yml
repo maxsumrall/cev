@@ -1,0 +1,46 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - index.html
+      - examples/**
+      - .github/workflows/main.yml
+      - README.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to production
+    if: github.ref == 'refs/heads/main' && github.repository == 'maxsumrall/cev'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cev.shenandoah.io
+
+    steps:
+      - name: Checkout
+        # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 1
+
+      - name: Deploy via SFTP
+        # v1.2.5
+        uses: wlixcc/SFTP-Deploy-Action@114b30c9a6a123d4713d7b0e255a106a5045c342
+        with:
+          username: ${{ secrets.FTP_USERNAME }}
+          server: ${{ secrets.FTP_SERVER }}
+          port: ${{ secrets.FTP_PORT }}
+          remote_path: '/var/www/cev'
+          sftp_only: true
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}

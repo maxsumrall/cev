@@ -1,0 +1,42 @@
+WITH
+    forecast AS
+    (
+        SELECT
+            load_timestamp AS event_time,
+            site_id AS hub_id,
+            SUM(amount) AS TFT_forecast
+        FROM models.delivery_demand_forecast_machine_learning
+        WHERE (delivery_period = 'afternoon') AND (site_id = (splitByChar(' ', 'BHT - Bocholt - Nordrhein-Westfalen')[1])) AND (toDate(window_start_time) = toDate(now() + toIntervalDay(1))) AND (process = 'shift_level_tft_forecast')
+        GROUP BY
+            event_time,
+            hub_id
+    ),
+    baseline AS
+    (
+        WITH
+            toStartOfDay(toDate(now()) - toIntervalDay(3)) AS start,
+            toStartOfDay(toDate(now()) + toIntervalDay(1)) AS end
+        SELECT arrayJoin(arrayMap(x -> toDateTime(x), range(toUInt32(start), toUInt32(end), 600))) AS ts
+    ),
+    joined AS
+    (
+        SELECT DISTINCT
+            ts AS event_time,
+            ' ' AS TFT_forecast
+        FROM baseline AS bs
+        INNER JOIN
+        (
+            SELECT MIN(event_time) AS min_event_time
+            FROM forecast
+        ) AS mmt ON 1 = 1
+        WHERE bs.ts >= mmt.min_event_time
+        UNION ALL
+        SELECT
+            event_time,
+            toString(TFT_forecast)
+        FROM forecast
+    )
+SELECT DISTINCT
+    event_time,
+    toInt64(LAST_VALUE(NULLIF(TFT_forecast, ' ')) OVER (ORDER BY event_time ASC)) AS TFT_forecast
+FROM joined

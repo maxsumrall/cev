@@ -1,0 +1,1914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ClickHouse EXPLAIN Visualizer.</title>
+  <!-- Load D3 and D3 Flextree -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-flextree@2.0.0/build/d3-flextree.min.js"></script>
+  <style>
+    /* Import a cool font */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+    /* Basic page styles */
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    h1 {
+      color: #333;
+    }
+    /* Input container styling */
+    #inputContainer {
+      width: 100%;
+      text-align: center;
+      padding: 20px 0;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      font-family: monospace;
+      padding: 10px;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      background-color: #0d6efd;
+      color: white;
+      border: none;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #0b5ed7;
+    }
+    /* Stats billboard styling */
+    #stats {
+      margin: 0 auto;
+      width: 100%;
+      max-width: 1200px;
+      flex-shrink: 0;  /* Prevent shrinking */
+    }
+    /* Tree container styling: make it responsive */
+    #treeContainer {
+      flex: 1;  /* Take remaining space */
+      min-height: 600px;
+      height: calc(100vh - 200px);  /* Subtract header and footer height */
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      margin: 10px 0;
+      padding: 10px;
+      overflow: hidden;
+      position: relative;  /* For proper SVG positioning */
+    }
+    /* Ensure the SVG takes up full container space */
+    #treeContainer svg {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    /* Node and Link styles */
+    .node rect {
+      fill: #3498db;
+      stroke: #2c3e50;
+      stroke-width: 2px;
+      rx: 8px;
+      ry: 8px;
+      cursor: pointer;
+    }
+    .node.join rect {
+      fill: #f39c12;
+    }
+    .node text {
+      fill: white;
+      font-size: 14px;
+      text-anchor: middle;
+      pointer-events: none;  /* Allow hover on rect to work */
+    }
+    .link {
+      fill: none;
+      stroke: #bbb;
+    }
+    /* Instruction styles */
+    .instructions {
+      background: #f8f9fa;
+      border-radius: 5px;
+      padding: 15px;
+      margin: 0 auto 20px;
+      border: 1px solid #dee2e6;
+      position: relative;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      width: max-content;
+    }
+    .instructions:hover {
+      background: #e9ecef;
+    }
+    .instructions p {
+      margin: 8px 0;
+      color: #495057;
+      display: block; /* Change to block for vertical layout */
+      line-height: 1.4;
+    }
+    .code-block {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0;
+      padding: 8px 12px;
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+    }
+    .instructions .copy-button {
+      display: flex;
+      align-items: center;
+      opacity: 0;
+      transition: opacity 0.2s;
+      padding: 4px;
+      background: #0e0808;
+      border: 1px solid #dee2e6;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+    }
+    .code-block:hover .copy-button {
+      opacity: 1;
+    }
+    .instructions:hover .copy-button {
+      opacity: 1;
+    }
+    .copy-icon {
+      width: 14px;
+      height: 14px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .subtitle {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 1.1rem;
+      font-weight: 400;
+      margin: 0.5rem auto 0;
+      max-width: 600px;
+      line-height: 1.4;
+      opacity: 0.8;
+    }
+    /* Textarea styling */
+    #jsonInput {
+      width: 100%;
+      height: 200px;
+      padding: 15px;
+      margin-bottom: 10px; /* Space for buttons */
+    }
+    /* Button container */
+    .button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+    /* Simple button styling */
+    #visualizeBtn {
+      background: #2196F3; /* Blue */
+    }
+    #loadExample {
+      background: #4CAF50; /* Green */
+    }
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+    }
+    
+    .modal-content {
+      position: relative;
+      background: white;
+      margin: 50px auto;
+      padding: 20px;
+      width: 80%;
+      max-width: 800px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    
+    .step-indicator {
+      margin-bottom: 20px;
+      color: #666;
+    }
+    
+    .copy-button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: all 0.2s;
+    }
+    
+    .modal-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+    }
+    /* Add new styles */
+    .start-container {
+      display: inline-block;
+    }
+
+    .start-button {
+      font-size: 1.2em;
+      padding: 15px 40px;
+      margin-top: 20px;
+      background: linear-gradient(135deg, #2196F3, #03A9F4);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+    }
+
+    .start-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
+    }
+
+    .start-button:active {
+      transform: translateY(1px);
+      box-shadow: 0 2px 10px rgba(33, 150, 243, 0.3);
+    }
+
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .example-button {
+      padding: 6px 12px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+
+    .example-button:hover {
+      background: #388E3C;
+    }
+
+    .query-display-container {
+      position: relative;
+      margin: 10px 0;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      background: #2b2b2b;  /* Dark background for code */
+    }
+
+    .query-display {
+      max-height: 100px;
+      overflow-y: auto;
+      padding: 12px;
+      margin: 0;
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre;
+      color: #fff;  /* White text for contrast */
+      text-align: left;
+      tab-size: 4;
+      -moz-tab-size: 4;
+    }
+
+    .copy-button-container {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+    }
+
+    .copy-button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: all 0.2s;
+    }
+
+    .copy-button:hover {
+      background: #e9ecef;
+    }
+
+    .copy-button-prominent {
+      display: block;
+      margin: 10px 0;
+      padding: 8px 16px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1em;
+      transition: background 0.2s;
+    }
+    
+    .copy-button-prominent:hover {
+      background: #388E3C;
+    }
+
+    /* Step indicator styling */
+    .step-indicator {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      font-size: 1.2em;
+    }
+    
+    .step-number {
+      display: flex;
+      align-items: baseline;
+      margin-right: 10px;
+    }
+    
+    .step-number .current {
+      font-size: 2.5em;
+      font-weight: bold;
+      color: #2196F3;
+      perspective: 1000px;
+      transform-style: preserve-3d;
+      transition: transform 0.3s, opacity 0.3s;
+    }
+    
+    .step-number .total {
+      color: #999;
+      font-size: 1.2em;
+      margin-left: 4px;
+      font-weight: normal;
+    }
+    
+    .step-title {
+      font-size: 1.2em;
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .step-instructions {
+      background: linear-gradient(135deg, #f6f8ff 0%, #f1f8ff 100%);
+      border: 1px solid rgba(33, 150, 243, 0.2);
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(33, 150, 243, 0.1);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .step-instructions::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: linear-gradient(to bottom, #2196F3, #03A9F4);
+    }
+    
+    .step-instructions p {
+      margin: 0 0 0 15px;
+      color: #1976D2;
+      line-height: 1.6;
+      font-size: 1.1em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    /* Code textarea styling */
+    .code-textarea {
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.4;
+      padding: 15px;
+      tab-size: 4;
+      text-align: left;
+      white-space: pre;
+      word-spacing: normal;
+      word-break: normal;
+      overflow-x: auto;
+      background: #fff;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    /* Add tooltip styling */
+    .node-tooltip {
+      position: fixed;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      border-radius: 4px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 1000;
+      max-width: 300px;
+      white-space: pre-wrap;
+    }
+
+    /* Stats billboard styling */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      padding: 10px;
+    }
+    
+    .stat-card {
+      padding: 8px;
+      margin: 0;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #2196F3;
+      margin: 10px 0;
+    }
+    
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+      margin: 0;
+    }
+
+    /* Add styles for disabled buttons */
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+
+    /* Update modal buttons */
+    .modal-buttons button {
+      transition: all 0.2s ease;
+    }
+
+    /* Header styles */
+    .site-header {
+      padding: 1rem 2rem;
+      background: white;
+      box-shadow: 0 2px 15px rgba(33, 150, 243, 0.1);
+      margin-bottom: 2rem;
+      background: #1E88E5;  /* Smurf blue */
+      color: white;
+    }
+    
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+    }
+    
+    .domain-name {
+      color: white;
+      font-size: 1.8em;
+      font-weight: 500;
+      text-align: left;
+      text-decoration: none;
+      opacity: 0.9;
+    }
+    
+    .domain-name:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+    
+    .title-container {
+      text-align: center;
+    }
+    
+    .page-title {
+      font-size: 1.2em;
+      color: white;
+      margin: 0;
+      font-weight: normal;
+    }
+
+    /* Footer styles */
+    .footer {
+      background: #1E88E5;  /* Match header color */
+      color: #fff;
+      padding: 1rem;
+      text-align: center;
+      font-size: 0.9em;
+      flex-shrink: 0;  /* Prevent footer from shrinking */
+    }
+    
+    .footer .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+      text-align: left;
+      font-weight: 500;
+      letter-spacing: 0.2px;
+    }
+    
+    .footer a {
+      color: #fff;
+      text-decoration: none;
+      position: relative;
+      padding-bottom: 2px;
+    }
+    
+    .footer a:hover {
+      text-decoration: none;
+    }
+
+    .footer a::after {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 2px;
+      bottom: 0;
+      left: 0;
+      background-color: white;
+      transform: scaleX(0);
+      transition: transform 0.3s ease;
+    }
+    
+    .footer a:hover::after {
+      transform: scaleX(1);
+    }
+
+    /* Main content wrapper */
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+      padding: 0 20px;
+      height: calc(100vh - 150px);  /* Subtract header and footer */
+      gap: 20px;
+    }
+
+    /* Analysis panel (left side) */
+    .analysis-container {
+      width: 33%;
+      min-width: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+      padding-right: 10px;
+      border-right: 1px solid #dee2e6;
+      height: 100%;  /* Take full height of parent */
+    }
+
+    /* Tree container (right side) */
+    #treeContainer {
+      flex: 1;  /* Take remaining space */
+      min-height: 600px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      margin: 10px 0;
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    /* Stats grid - make it more compact for side panel */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);  /* Change to 2 columns */
+      gap: 10px;
+      padding: 10px;
+    }
+
+    /* Recommendations panel - adjust for side panel */
+    .recommendations-panel {
+      margin: 0;
+      width: 100%;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    /* Make recommendations single column in side panel */
+    .severity-group {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      margin-top: 15px;
+    }
+
+    /* Adjust issue cards for narrower layout */
+    .issue {
+      margin: 0 10px;
+      padding: 12px;
+    }
+
+    /* Add styles for recommendations */
+    .no-issues {
+      padding: 15px;
+      background: #d4edda;
+      color: #155724;
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .issue-header {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .severity {
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.8em;
+      font-weight: bold;
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .type {
+      font-size: 0.8em;
+      font-weight: bold;
+      color: #666;
+    }
+
+    .message {
+      margin-bottom: 8px;
+      color: #333;
+    }
+
+    .recommendation {
+      color: #0066cc;
+      font-style: italic;
+    }
+
+    /* Add styles for enhanced recommendations */
+    .issues-summary {
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 4px;
+      display: flex;
+      gap: 20px;
+      font-weight: 500;
+    }
+
+    .highlight-node {
+      margin-top: 10px;
+      padding: 5px 10px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: background 0.2s;
+    }
+
+    .highlight-node:hover {
+      background: #1976D2;
+    }
+
+    .node.highlighted rect {
+      stroke: #ffc107 !important;
+      stroke-width: 4px !important;
+      filter: drop-shadow(0 0 8px rgba(255, 193, 7, 0.5));
+    }
+
+    .node.leaf rect {
+      fill: #2ecc71;
+    }
+
+    .node.join rect {
+      fill: #f39c12;
+    }
+
+    .node rect {
+      fill: #3498db;
+      stroke: #2c3e50;
+      stroke-width: 2px;
+      rx: 8px;
+      ry: 8px;
+      cursor: pointer;
+    }
+
+    .performance-metrics {
+      margin-top: 10px;
+      font-size: 0.9em;
+      color: #666;
+    }
+
+    .metric {
+      display: inline-block;
+      margin-right: 15px;
+    }
+
+    .metric-icon {
+      margin-right: 5px;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-content">
+      <a href="/" class="domain-name">cev.shenandoah.io</a>
+      <div class="title-container">
+        <h1 class="page-title">ClickHouse EXPLAIN Visualizer</h1>
+        <p class="subtitle">Visualize and understand your ClickHouse query execution plans</p>
+      </div>
+    </div>
+  </header>
+  
+  <div class="main-content">
+    <!-- Analysis Panel (Left Side) -->
+    <div class="analysis-container">
+      <!-- Input Container -->
+      <div id="inputContainer">
+        <div class="start-container">
+          <button id="startAnalysis" class="start-button">Start Analysis</button>
+        </div>
+      </div>
+      <!-- Hidden input for processing -->
+      <textarea id="jsonInput" style="display: none;"></textarea>
+      <!-- Stats billboard -->
+      <div id="stats"></div>
+      <!-- Recommendations will be added here by JavaScript -->
+    </div>
+
+    <!-- Tree Container (Right Side) -->
+    <div id="treeContainer"></div>
+  </div>
+
+  <!-- Add modal HTML after the existing content -->
+  <div id="queryWizard" class="modal">
+    <div class="modal-content">
+      <!-- Step 1 -->
+      <div id="step1" class="wizard-step">
+        <div class="step-header">
+          <div class="step-indicator">
+            <div class="step-number">
+              <span class="current">1</span>
+              <span class="total">/ 3</span>
+            </div>
+            <div class="step-title">Original Query</div>
+          </div>
+          <button class="example-button" id="loadExample1">
+            Load Example
+          </button>
+        </div>
+        <div class="step-instructions">
+          <p>
+            <span class="instruction-icon">✨</span>
+            Start by pasting your ClickHouse SQL query below
+          </p>
+        </div>
+        <textarea id="originalQuery" 
+          class="code-textarea" 
+          placeholder="SELECT * FROM your_table WHERE..." 
+          rows="10"
+          spellcheck="false"></textarea>
+        <div class="modal-buttons">
+          <button id="closeButton">Cancel</button>
+          <button id="nextButton1">Next ></button>
+        </div>
+      </div>
+      
+      <!-- Step 2 -->
+      <div id="step2" class="wizard-step" style="display: none;">
+        <div class="step-header">
+          <div class="step-indicator">
+            <div class="step-number">
+              <span class="current">2</span>
+              <span class="total">/ 3</span>
+            </div>
+            <div class="step-title">Query Plan</div>
+          </div>
+          <button class="example-button" id="loadExample2">
+            Load Example
+          </button>
+        </div>
+        <div class="step-instructions">
+          <p>
+            <span class="instruction-icon">⚡️</span>
+            Run this query in ClickHouse to get the execution plan
+          </p>
+        </div>
+        <div class="query-display-container">
+          <pre id="explainQuery" class="query-display"></pre>
+        </div>
+        <button class="copy-button-prominent" id="copyExplainButton">
+          📋 Copy Query to Clipboard
+        </button>
+        <textarea id="explainResult" 
+          class="code-textarea" 
+          placeholder="Paste EXPLAIN result here..." 
+          rows="10"
+          spellcheck="false"></textarea>
+        <div class="modal-buttons">
+          <button id="prevButton2">< Back</button>
+          <button id="nextButton2">Next ></button>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div id="step3" class="wizard-step" style="display: none;">
+        <div class="step-header">
+          <div class="step-indicator">
+            <div class="step-number">
+              <span class="current">3</span>
+              <span class="total">/ 3</span>
+            </div>
+            <div class="step-title">Table Statistics</div>
+          </div>
+          <button class="example-button" id="loadExample3">
+            Load Example
+          </button>
+        </div>
+        <div class="step-instructions">
+          <p>
+            <span class="instruction-icon">📊</span>
+            One last query to get table statistics
+          </p>
+        </div>
+        <div class="query-display-container">
+          <pre id="estimateQuery" class="query-display"></pre>
+        </div>
+        <button class="copy-button-prominent" id="copyEstimateButton">
+          📋 Copy Query to Clipboard
+        </button>
+        <textarea id="estimateResult" 
+          class="code-textarea" 
+          placeholder="Paste EXPLAIN ESTIMATE result here..." 
+          rows="10"
+          spellcheck="false"></textarea>
+        <div class="modal-buttons">
+          <button id="prevButton3">< Back</button>
+          <button id="visualizeButton">Visualize ></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <div class="container">
+      Service brought to you by <a href="https://github.com/sumrall">Max Sumrall</a>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      'use strict';
+
+      // Add node configuration at the start of the script
+      const NodeConfig = {
+        padding: {
+          x: 30,
+          y: 15,
+        },
+        text: {
+          lineHeight: 20,
+        },
+        sizes: {
+          leaf: {
+            width: 350,    // Even bigger for leaf nodes to fit all info
+            height: 180    // Taller to fit index information
+          },
+          parent: {
+            width: 180,    // Smaller for parent nodes
+            height: 40     // Much shorter since they only show type
+          }
+        }
+      };
+
+      // --- Helper Functions ---
+
+      // Use a canvas for efficient text measurement.
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      context.font = '14px Arial';
+
+      function getNodeDimensions(node) {
+        // Create a temporary container to measure text
+        const temp = d3.select("body")
+          .append("div")
+          .style("position", "absolute")
+          .style("visibility", "hidden")
+          .style("font-family", "sans-serif")
+          .style("font-size", "12px");
+
+        // Format node text
+        const formatter = new QueryNode(node.data);
+        formatter.addEstimateData(window.estimateData);
+        const lines = formatter.formatBasic().split('\n');
+
+        // Measure each line
+        const lineWidths = lines.map(line => {
+          temp.text(line);
+          return temp.node().getBoundingClientRect().width;
+        });
+
+        // Clean up
+        temp.remove();
+
+        // Calculate dimensions
+        const width = Math.max(...lineWidths) + 40; // Add padding
+        const height = lines.length * 20 + 20; // 20px per line + padding
+
+        return {
+          width: Math.max(180, width), // Minimum width of 180px
+          height: Math.max(40, height)  // Minimum height of 40px
+        };
+      }
+
+      // --- Query Node Formatting ---
+      class QueryNode {
+        constructor(data) {
+          this.data = data;
+          this.table = null;
+          this.index = null;
+          this.stats = null;
+          
+          if (data["Node Type"] === "ReadFromMergeTree") {
+            this.parseTableInfo();
+            this.parseIndexInfo();
+          }
+        }
+
+        parseTableInfo() {
+          const description = this.data.Description || "";
+          const match = description.match(/(\w+)\.(\w+)/);
+          if (match) {
+            this.table = {
+              database: match[1],
+              name: match[2]
+            };
+          }
+        }
+
+        parseIndexInfo() {
+          if (this.data.Indexes && this.data.Indexes[0]) {
+            const index = this.data.Indexes[0];
+            this.index = {
+              type: index.Type || "Unknown",
+              keys: index.Keys || [],
+              condition: index.Condition,
+              selectedGranules: index["Selected Granules"] || 0,
+              initialGranules: index["Initial Granules"] || 0,
+              selectivity: (index["Selected Granules"] || 0) / (index["Initial Granules"] || 1)
+            };
+          }
+        }
+
+        addEstimateData(estimateData) {
+          if (!estimateData || !this.table) return;
+          
+          const key = `${this.table.database}.${this.table.name}`;
+          const stats = estimateData[key];
+          if (stats) {
+            this.stats = {
+              rows: parseInt(stats.rows) || 0,
+              parts: parseInt(stats.parts) || 0,
+              marks: parseInt(stats.marks) || 0,
+              rowsPerMark: Math.round((parseInt(stats.rows) || 0) / (parseInt(stats.marks) || 1)),
+              rowsPerPart: Math.round((parseInt(stats.rows) || 0) / (parseInt(stats.parts) || 1))
+            };
+          }
+        }
+
+        formatBasic() {
+          const lines = [];
+          lines.push(this.data["Node Type"]);
+          
+          if (this.table) {
+            lines.push(`${this.table.database}.${this.table.name}`);
+          } else if (this.data.Description) {
+            lines.push(this.data.Description);
+          }
+          
+          if (this.index) {
+            const selectivityPct = (this.index.selectivity * 100).toFixed(1);
+            lines.push(`Granules: ${this.index.selectedGranules}/${this.index.initialGranules} (${selectivityPct}%)`);
+          }
+          
+          return lines.join('\n');
+        }
+      }
+
+      // Then replace the formatNodeText function with:
+      function formatNodeText(node) {
+        const formatter = new QueryNode(node);
+        formatter.addEstimateData(window.estimateData);
+        return formatter.formatBasic();
+      }
+
+      // Transform the raw query plan into a simpler hierarchical structure.
+      // Every node gets a "granules" property (using "Selected Granules" if available, else 1).
+      function transformQueryPlan(rawData) {
+        let totalLeafGranules = 0;
+        function parseNode(node) {
+          const label = node["Node Type"] || "Unknown";
+          const newNode = {
+            name: label,
+            "Node Type": label,  // Add this to match the expected structure
+            Description: node["Description"] || null,
+            Indexes: node.Indexes,
+            granules: node.Indexes?.[0]?.["Selected Granules"] || 1,
+            Plans: node.Plans  // Add this to preserve the hierarchy
+          };
+          if (node.Plans && Array.isArray(node.Plans)) {
+            newNode.children = node.Plans.map(parseNode);
+          } else {
+            totalLeafGranules += newNode.granules;
+          }
+          return newNode;
+        }
+        const parsed = parseNode(rawData[0].Plan);
+        parsed.totalLeafGranules = totalLeafGranules;
+        return parsed;
+      }
+
+      // Determine node color based on index selectivity.
+      function getNodeColor(d) {
+        if (d.data.Indexes && d.data.Indexes[0]) {
+          const index = d.data.Indexes[0];
+          if (index["Initial Granules"] && index["Selected Granules"]) {
+            const selectivity = index["Selected Granules"] / index["Initial Granules"];
+            const red = Math.min(255, Math.round(selectivity * 255));
+            const green = Math.min(255, Math.round((1 - selectivity) * 255));
+            return `rgb(${red},${green},0)`;
+          }
+        }
+        return "#3498db";
+      }
+
+      // Parse the EXPLAIN ESTIMATE output into a lookup table by database.table
+      function parseEstimateData(input) {
+        return input
+          .split('\n')
+          .filter(line => line.trim())
+          .map(line => JSON.parse(line))
+          .reduce((acc, stat) => {
+            // Create a lookup by "database.table"
+            acc[`${stat.database}.${stat.table}`] = {
+              rows: parseInt(stat.rows),
+              parts: parseInt(stat.parts),
+              marks: parseInt(stat.marks)
+            };
+            return acc;
+          }, {});
+      }
+
+      // --- D3 Setup ---
+      const container = d3.select("#treeContainer");
+      const width = container.node().clientWidth;
+      const height = 800; // Set a fixed initial height
+
+      // Create SVG
+      const svg = container
+        .append("svg")
+        .attr("width", "100%")
+        .attr("height", height)
+        .attr("viewBox", [0, 0, width, height]);
+
+      // Add zoom behavior
+      const zoom = d3.zoom()
+        .scaleExtent([0.1, 3])
+        .on("zoom", (event) => {
+          g.attr("transform", event.transform);
+        });
+
+      svg.call(zoom);
+
+      // Create a group for the graph
+      const g = svg.append("g");
+
+      // Initialize flextree layout
+      const flextree = d3.flextree()
+        .nodeSize(d => {
+          const dimensions = d.data.dimensions || { width: 180, height: 40 };
+          return [dimensions.width + 50, dimensions.height + 50];
+        })
+        .spacing((a, b) => 50);
+
+      function render(root, totalSelected) {
+        // Clear previous content
+        g.selectAll("*").remove();
+
+        // Compute the layout
+        const layout = flextree(root);
+        
+        // Create links
+        const links = g.append("g")
+          .attr("class", "links")
+          .selectAll("path")
+          .data(layout.links())
+          .join("path")
+          .attr("class", "link")
+          .attr("d", d => {
+            const sourceX = d.source.x;
+            const sourceY = d.source.y + d.source.data.dimensions.height;
+            const targetX = d.target.x;
+            const targetY = d.target.y;
+            return `M${sourceX},${sourceY} C${sourceX},${(sourceY + targetY) / 2} ${targetX},${(sourceY + targetY) / 2} ${targetX},${targetY}`;
+          })
+          .attr("fill", "none")
+          .attr("stroke", "#999")
+          .attr("stroke-width", d => {
+            const fraction = d.target.value / totalSelected;
+            return 1 + fraction * 5;
+          })
+          .attr("stroke-opacity", 0.6);
+
+        // Create tooltip div if it doesn't exist
+        let tooltip = d3.select("body").select(".node-tooltip");
+        if (tooltip.empty()) {
+          tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "node-tooltip")
+            .style("opacity", 0);
+        }
+
+        // Create node groups
+        const nodes = g.append("g")
+          .attr("class", "nodes")
+          .selectAll("g")
+          .data(layout.descendants())
+          .join("g")
+          .attr("class", d => {
+            const classes = ["node"];
+            if (d.data["Node Type"]?.toLowerCase().includes("join")) {
+              classes.push("join");
+            }
+            if (d.data["Node Type"] === "ReadFromMergeTree") {
+              classes.push("leaf");
+            }
+            return classes.join(" ");
+          })
+          .attr("transform", d => `translate(${d.x},${d.y})`);
+
+        // Add node rectangles with hover behavior
+        nodes.append("rect")
+          .attr("width", d => d.data.dimensions.width)
+          .attr("height", d => d.data.dimensions.height)
+          .attr("x", d => -d.data.dimensions.width / 2)
+          .attr("y", 0)
+          .attr("rx", 8)
+          .attr("ry", 8)
+          .attr("fill", d => {
+            if (d.data["Node Type"] === "ReadFromMergeTree" && d.data.Indexes && d.data.Indexes[0]) {
+              const index = d.data.Indexes[0];
+              const selectivity = index["Selected Granules"] / index["Initial Granules"];
+              const red = Math.min(255, Math.round(selectivity * 255));
+              const green = Math.min(255, Math.round((1 - selectivity) * 255));
+              return `rgb(${red},${green},0)`;
+            }
+            if (d.data["Node Type"]?.toLowerCase().includes("join")) {
+              return "#f39c12"; // Orange for join nodes
+            }
+            return "#3498db"; // Default blue
+          })
+          .attr("stroke", d => d.data["Node Type"] === "ReadFromMergeTree" ? "#1f618d" : "#2c3e50")
+          .attr("stroke-width", 2)
+          .on("mouseover", function(event, d) {
+            const formatter = new QueryNode(d.data);
+            formatter.addEstimateData(window.estimateData);
+            const details = formatter.formatBasic();
+            
+            tooltip.transition()
+              .duration(200)
+              .style("opacity", .9);
+            
+            tooltip.html(details)
+              .style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 10) + "px");
+          })
+          .on("mousemove", function(event) {
+            tooltip.style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 10) + "px");
+          })
+          .on("mouseout", function() {
+            tooltip.transition()
+              .duration(500)
+              .style("opacity", 0);
+          });
+
+        // Add node text
+        nodes.each(function(d) {
+          const node = d3.select(this);
+          const formatter = new QueryNode(d.data);
+          formatter.addEstimateData(window.estimateData);
+          const lines = formatter.formatBasic().split('\n');
+          
+          const text = node.append("text")
+            .attr("x", 0)
+            .attr("y", 15)
+            .attr("text-anchor", "middle")
+            .attr("fill", "white");
+
+          lines.forEach((line, i) => {
+            text.append("tspan")
+              .attr("x", 0)
+              .attr("dy", i === 0 ? 0 : 20)
+              .text(line);
+          });
+        });
+
+        // Center the graph with a slight delay to ensure proper rendering
+        setTimeout(() => {
+          // Get the bounds of the entire graph
+          const bounds = layout.descendants().reduce(
+            (acc, node) => {
+              const halfWidth = node.data.dimensions.width / 2;
+              const x = node.x;
+              const y = node.y;
+              return {
+                left: Math.min(acc.left, x - halfWidth),
+                right: Math.max(acc.right, x + halfWidth),
+                top: Math.min(acc.top, y),
+                bottom: Math.max(acc.bottom, y + node.data.dimensions.height)
+              };
+            },
+            { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity }
+          );
+
+          // Calculate the graph dimensions
+          const graphWidth = bounds.right - bounds.left;
+          const graphHeight = bounds.bottom - bounds.top;
+
+          // Calculate the scale to fit the graph in the viewport with some padding
+          const scale = 0.9 * Math.min(
+            width / graphWidth,
+            height / graphHeight
+          );
+
+          // Calculate the translation to center the graph
+          const dx = width / 2 - (bounds.left + graphWidth / 2) * scale;
+          const dy = height / 2 - (bounds.top + graphHeight / 2) * scale;
+
+          // Apply the transform with transition
+          svg.transition()
+            .duration(750)
+            .call(
+              zoom.transform,
+              d3.zoomIdentity
+                .translate(dx, dy)
+                .scale(scale)
+            );
+        }, 100);
+      }
+
+      // --- Main Processing Function ---
+      async function processInput() {
+        try {
+          const jsonData = JSON.parse(document.getElementById('jsonInput').value);
+          const transformedData = transformQueryPlan(jsonData);
+          console.log('Transformed query plan:', transformedData);
+          const root = d3.hierarchy(transformedData, d => d.children);
+          
+          // Clear existing visualization
+          g.selectAll("*").remove();
+          
+          // Add estimate data
+          window.estimateData = parseEstimateData(wizardState.explainEstimate);
+          console.log('Parsed estimate data:', window.estimateData);
+          
+          // Process each node to add dimensions
+          root.each(d => {
+            try {
+              const dimensions = getNodeDimensions(d);
+              d.data.dimensions = {
+                width: dimensions.width,
+                height: dimensions.height
+              };
+            } catch (nodeError) {
+              console.error('Error processing node:', nodeError, d);
+            }
+          });
+
+          // Aggregate leaf "granules" upward
+          root.sum(d => d.granules || 0);
+
+          // Overall total selected granules
+          const totalSelected = root.value;
+
+          // Get or create analysis container
+          let analysisContainer = document.querySelector('.analysis-container');
+          if (!analysisContainer) {
+            analysisContainer = document.createElement('div');
+            analysisContainer.className = 'analysis-container';
+            document.querySelector('.main-content').insertBefore(
+              analysisContainer,
+              document.getElementById('treeContainer')
+            );
+          }
+
+          // Create stats container if it doesn't exist
+          let statsDiv = document.getElementById('stats');
+          if (!statsDiv) {
+            statsDiv = document.createElement('div');
+            statsDiv.id = 'stats';
+            analysisContainer.appendChild(statsDiv);
+          }
+
+          // Clear only the content of the containers
+          analysisContainer.innerHTML = '';
+          
+          // Compute and display stats
+          const stats = computeStats(root);
+          const statsHtml = `
+            <div class="stats-grid">
+              <div class="stat-card">
+                <div class="stat-value">${stats.totalNodes}</div>
+                <div class="stat-label">Total Nodes</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${stats.joinNodes}</div>
+                <div class="stat-label">Join Nodes</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${stats.totalTables}</div>
+                <div class="stat-label">Tables Referenced</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${stats.totalGranules.toLocaleString()}</div>
+                <div class="stat-label">Selected Granules</div>
+              </div>
+            </div>
+          `;
+          
+          // Add stats to analysis container
+          statsDiv.innerHTML = statsHtml;
+          analysisContainer.appendChild(statsDiv);
+
+          // Analyze the query
+          const analyzer = new QueryAnalyzer(root, window.estimateData);
+          const analysis = analyzer.analyze();
+          
+          // Store current analysis for reference
+          window.currentAnalysis = analysis;
+          
+          // Add recommendations panel
+          const recommendationsHtml = QueryAnalyzer.formatRecommendations(analysis);
+          const recommendationsContainer = document.createElement('div');
+          recommendationsContainer.innerHTML = recommendationsHtml;
+          analysisContainer.appendChild(recommendationsContainer);
+
+          // Render the tree
+          render(root, totalSelected);
+        } catch (error) {
+          console.error("Error processing input:", error);
+          alert("An error occurred while processing the input. Please try again later.");
+        }
+      }
+
+      // --- Event Listeners ---
+      document.getElementById("startAnalysis").addEventListener("click", showWizard);
+
+      async function loadStepExample(step) {
+        try {
+          switch(step) {
+            case 1:
+              const queryResponse = await fetch('./examples/original-sql.txt');
+              const queryText = await queryResponse.text();
+              document.getElementById('originalQuery').value = queryText;
+              updateNextButton(1);
+              break;
+            case 2:
+              const planResponse = await fetch('./examples/explain-plan.json');
+              const planJson = await planResponse.json();
+              document.getElementById('explainResult').value = JSON.stringify(planJson, null, 2);
+              updateNextButton(2);
+              break;
+            case 3:
+              const estimateResponse = await fetch('./examples/explain-estimate.json');
+              const estimateText = await estimateResponse.text();
+              document.getElementById('estimateResult').value = estimateText;
+              updateNextButton(3);
+              break;
+          }
+        } catch (error) {
+          console.error('Failed to load example:', error);
+          alert('Failed to load example data. Please try again.');
+        }
+      }
+
+      // Wizard state
+      let currentStep = 1;
+      let wizardState = {
+        originalQuery: '',
+        explainPlan: '',
+        explainEstimate: '',
+      };
+
+      function showWizard() {
+        document.getElementById('queryWizard').style.display = 'block';
+        // Show first step by default
+        document.getElementById('step1').style.display = 'block';
+        document.getElementById('step2').style.display = 'none';
+        document.getElementById('step3').style.display = 'none';
+      }
+
+      function closeWizard() {
+        document.getElementById('queryWizard').style.display = 'none';
+      }
+
+      function nextStep(step) {
+        // Animate step number
+        if (step > currentStep) {
+          animateStepNumber(currentStep, step);
+        }
+        
+        // Save current step data
+        if (currentStep === 1) {
+          wizardState.originalQuery = document.getElementById('originalQuery').value;
+        } else if (currentStep === 2) {
+          wizardState.explainPlan = document.getElementById('explainResult').value;
+        } else if (currentStep === 3) {
+          wizardState.explainEstimate = document.getElementById('estimateResult').value;
+        }
+
+        if (step === 4) {
+          closeWizard();
+          // Validate all required data is present
+          if (!wizardState.explainPlan) {
+            alert('Missing query plan data');
+            return;
+          }
+          if (!wizardState.explainEstimate) {
+            alert('Missing estimate data');
+            return;
+          }
+          
+          try {
+            document.getElementById('jsonInput').value = wizardState.explainPlan;
+            processInput();
+          } catch (error) {
+            console.error('Error during visualization:', error);
+            alert('Error processing data. Check console for details.');
+          }
+          return;
+        }
+
+        // Hide current step
+        document.getElementById(`step${currentStep}`).style.display = 'none';
+        
+        // Show next step
+        document.getElementById(`step${step}`).style.display = 'block';
+        
+        // If moving to step 2/3, prepare the EXPLAIN queries
+        if (step === 2) {
+          const explainQuery = `EXPLAIN plan indexes=1, json=1\n${wizardState.originalQuery}`;
+          document.getElementById('explainQuery').textContent = explainQuery;
+        } else if (step === 3) {
+          const estimateQuery = `EXPLAIN estimate\n${wizardState.originalQuery}\nFORMAT JSONEACHROW`;
+          document.getElementById('estimateQuery').textContent = estimateQuery;
+        }
+        
+        currentStep = step;
+      }
+
+      function previousStep() {
+        nextStep(currentStep - 1);
+      }
+
+      function copyExplainQuery() {
+        const text = document.getElementById('explainQuery').textContent;
+        navigator.clipboard.writeText(text)
+          .then(() => {
+            const button = document.getElementById('copyExplainButton');
+            const originalText = button.textContent;
+            button.textContent = '✅ Copied!';
+            setTimeout(() => {
+              button.textContent = '📋 Copy';
+            }, 1500);
+          });
+      }
+
+      function copyEstimateQuery() {
+        const text = document.getElementById('estimateQuery').textContent;
+        navigator.clipboard.writeText(text)
+          .then(() => {
+            const button = document.getElementById('copyEstimateButton');
+            const originalText = button.textContent;
+            button.textContent = '✅ Copied!';
+            setTimeout(() => {
+              button.textContent = '📋 Copy';
+            }, 1500);
+          });
+      }
+
+      // Add event listeners for example buttons
+      document.getElementById('loadExample1').addEventListener('click', () => loadStepExample(1));
+      document.getElementById('loadExample2').addEventListener('click', () => loadStepExample(2));
+      document.getElementById('loadExample3').addEventListener('click', () => loadStepExample(3));
+
+      // Add all event listeners
+      document.getElementById('closeButton').addEventListener('click', closeWizard);
+      document.getElementById('nextButton1').addEventListener('click', () => nextStep(2));
+      document.getElementById('prevButton2').addEventListener('click', () => previousStep());
+      document.getElementById('nextButton2').addEventListener('click', () => nextStep(3));
+      document.getElementById('prevButton3').addEventListener('click', () => previousStep());
+      document.getElementById('visualizeButton').addEventListener('click', () => nextStep(4));
+      document.getElementById('copyExplainButton').addEventListener('click', copyExplainQuery);
+      document.getElementById('copyEstimateButton').addEventListener('click', copyEstimateQuery);
+
+      function animateStepNumber(from, to) {
+        const current = document.querySelector('.step-number .current');
+        if (!current) return;
+        
+        current.style.transform = 'rotateX(-90deg)';
+        current.style.opacity = '0';
+        
+        setTimeout(() => {
+          current.textContent = to;
+          current.style.transform = 'rotateX(0)';
+          current.style.opacity = '1';
+        }, 150);
+        
+        setTimeout(() => {
+          current.style.transform = '';
+          current.style.opacity = '';
+        }, 300);
+      }
+
+      // Add input validation listeners
+      function updateNextButton(step) {
+        const input = step === 1 ? 'originalQuery' : 
+                     step === 2 ? 'explainResult' : 
+                     step === 3 ? 'estimateResult' : null;
+        
+        if (input) {
+          const nextButton = step === 1 ? 'nextButton1' : 
+                           step === 2 ? 'nextButton2' : 
+                           step === 3 ? 'visualizeButton' : null;
+          
+          const isValid = document.getElementById(input).value.trim() !== '';
+          document.getElementById(nextButton).disabled = !isValid;
+        }
+      }
+      
+      // Add input listeners and initialize button states
+      ['originalQuery', 'explainResult', 'estimateResult'].forEach((id, index) => {
+        const element = document.getElementById(id);
+        ['input', 'paste'].forEach(eventType => {
+          element.addEventListener(eventType, () => {
+            setTimeout(() => updateNextButton(index + 1), 0);
+          });
+        });
+        // Initialize button state
+        updateNextButton(index + 1);
+      });
+
+      class QueryAnalyzer {
+        constructor(root, estimateData) {
+          this.root = root;
+          this.estimateData = estimateData || {};
+          this.issues = [];
+          this.nodeStats = new Map();
+        }
+
+        analyze() {
+          this.analyzeNode(this.root);
+          return {
+            issues: this.issues,
+            nodeStats: this.nodeStats
+          };
+        }
+
+        analyzeNode(node) {
+          const stats = {
+            id: Math.random().toString(36).substr(2, 9)
+          };
+          this.nodeStats.set(node, stats);
+
+          try {
+            // Analyze MergeTree table access patterns
+            if (node.data["Node Type"] === "ReadFromMergeTree") {
+              this.analyzeMergeTreeAccess(node, stats);
+            }
+
+            // Analyze join patterns
+            if (/join/i.test(node.data["Node Type"])) {
+              this.analyzeJoinPattern(node, stats);
+            }
+
+            // Analyze distinct operations
+            if (node.data["Node Type"] === "Distinct") {
+              this.analyzeDistinctPattern(node, stats);
+            }
+
+            // Analyze expression operations
+            if (node.data["Node Type"] === "Expression") {
+              this.analyzeExpressionPattern(node, stats);
+            }
+
+            // Analyze sorting operations
+            if (node.data["Node Type"] === "Sorting") {
+              this.analyzeSortingPattern(node, stats);
+            }
+
+            // Analyze union operations
+            if (node.data["Node Type"] === "Union") {
+              this.analyzeUnionPattern(node, stats);
+            }
+
+            // Recursively analyze children
+            if (node.children) {
+              node.children.forEach(child => this.analyzeNode(child));
+            }
+          } catch (error) {
+            console.error('Error analyzing node:', error, node);
+          }
+        }
+
+        analyzeMergeTreeAccess(node, stats) {
+          // Check for full table scans
+          if (!node.data.Indexes || node.data.Indexes.length === 0) {
+            this.issues.push({
+              severity: "high",
+              type: "full_table_scan",
+              message: `Full table scan detected on table ${node.data.Description}`,
+              recommendation: "Consider adding an appropriate index for this query pattern",
+              nodeId: stats.id
+            });
+            return;
+          }
+
+          // Analyze index usage
+          const index = node.data.Indexes[0];
+          if (index) {
+            const selectivity = index["Selected Granules"] / index["Initial Granules"];
+            if (selectivity > 0.7) {
+              this.issues.push({
+                severity: "medium",
+                type: "poor_selectivity",
+                message: `Poor index selectivity (${(selectivity * 100).toFixed(1)}%) on ${node.data.Description}`,
+                recommendation: `Consider refining conditions on index keys: ${index.Keys?.join(', ')}`,
+                nodeId: stats.id
+              });
+            }
+
+            // If condition is provided, include it in the analysis
+            if (index.Condition) {
+              this.issues[this.issues.length - 1].message += `\nIndex condition: ${index.Condition}`;
+            }
+          }
+        }
+
+        analyzeJoinPattern(node, stats) {
+          const childrenCount = (node.children || []).length;
+          
+          // Check for complex joins
+          if (childrenCount > 2) {
+            this.issues.push({
+              severity: "medium",
+              type: "complex_join",
+              message: `Complex join pattern detected with ${childrenCount} inputs`,
+              recommendation: "Consider breaking down complex joins into simpler steps or using materialized views",
+              nodeId: stats.id
+            });
+          }
+
+          // Check for cross joins (if Description contains relevant info)
+          if (node.data.Description?.toLowerCase().includes('cross')) {
+            this.issues.push({
+              severity: "high",
+              type: "cross_join",
+              message: "Cross join detected",
+              recommendation: "Cross joins can be very expensive. Consider adding join conditions or restructuring the query",
+              nodeId: stats.id
+            });
+          }
+        }
+
+        analyzeDistinctPattern(node, stats) {
+          // Check for multiple distinct operations
+          let distinctCount = 0;
+          let current = node;
+          while (current) {
+            if (current.data["Node Type"] === "Distinct") distinctCount++;
+            current = current.children?.[0];
+          }
+
+          if (distinctCount > 1) {
+            this.issues.push({
+              severity: "medium",
+              type: "multiple_distinct",
+              message: `Multiple distinct operations (${distinctCount}) detected`,
+              recommendation: "Consider combining distinct operations or using GROUP BY instead",
+              nodeId: stats.id
+            });
+          }
+        }
+
+        analyzeExpressionPattern(node, stats) {
+          // Check for projection efficiency
+          if (node.data.Description?.includes("Project")) {
+            const parentType = node.parent?.data["Node Type"];
+            const childType = node.children?.[0]?.data["Node Type"];
+            
+            // Check for potentially redundant projections
+            if (parentType === "Expression" || childType === "Expression") {
+              this.issues.push({
+                severity: "low",
+                type: "redundant_projection",
+                message: "Multiple consecutive projections detected",
+                recommendation: "Consider combining projections to reduce overhead",
+                nodeId: stats.id
+              });
+            }
+          }
+        }
+
+        analyzeSortingPattern(node, stats) {
+          // Check if sorting is followed by a limit
+          let hasLimit = false;
+          let current = node.parent;
+          while (current && !hasLimit) {
+            if (current.data.Description?.toLowerCase().includes('limit')) {
+              hasLimit = true;
+            }
+            current = current.parent;
+          }
+
+          if (!hasLimit) {
+            this.issues.push({
+              severity: "low",
+              type: "unbounded_sort",
+              message: "Sorting without LIMIT detected",
+              recommendation: "Consider adding a LIMIT clause if you don't need all sorted results",
+              nodeId: stats.id
+            });
+          }
+        }
+
+        analyzeUnionPattern(node, stats) {
+          // Check for UNION ALL vs UNION DISTINCT
+          const hasDistinctChild = node.children?.some(child => 
+            child.data["Node Type"] === "Distinct" || 
+            child.children?.some(c => c.data["Node Type"] === "Distinct")
+          );
+
+          if (hasDistinctChild) {
+            this.issues.push({
+              severity: "low",
+              type: "union_distinct",
+              message: "UNION DISTINCT operation detected",
+              recommendation: "Consider using UNION ALL if duplicate rows are acceptable",
+              nodeId: stats.id
+            });
+          }
+        }
+
+        static formatRecommendations(analysis) {
+          const severityColors = {
+            high: "#dc3545",
+            medium: "#ffc107",
+            low: "#17a2b8"
+          };
+
+          const severityIcons = {
+            high: "🔴",
+            medium: "🟡",
+            low: "🔵"
+          };
+
+          // Group issues by severity
+          const issuesBySeverity = {
+            high: analysis.issues.filter(i => i.severity === 'high'),
+            medium: analysis.issues.filter(i => i.severity === 'medium'),
+            low: analysis.issues.filter(i => i.severity === 'low')
+          };
+
+          return `
+            <div class="recommendations-panel">
+              <h3>Query Analysis</h3>
+              ${analysis.issues.length === 0 ? 
+                '<div class="no-issues">✅ No significant issues detected</div>' :
+                `<div class="issues-summary">
+                  ${severityIcons.high} ${issuesBySeverity.high.length} High Severity
+                  ${severityIcons.medium} ${issuesBySeverity.medium.length} Medium Severity
+                  ${severityIcons.low} ${issuesBySeverity.low.length} Low Severity
+                </div>
+                ${Object.entries(issuesBySeverity).map(([severity, issues]) => 
+                  issues.length === 0 ? '' : `
+                    <div class="severity-group">
+                      ${issues.map(issue => `
+                        <div class="issue" style="border-left: 4px solid ${severityColors[severity]}" data-node-id="${issue.nodeId}">
+                          <div class="issue-header">
+                            <span class="severity">${severityIcons[severity]} ${severity.toUpperCase()}</span>
+                            <span class="type">${issue.type.replace(/_/g, ' ').toUpperCase()}</span>
+                          </div>
+                          <div class="message">${issue.message}</div>
+                          <div class="recommendation">💡 ${issue.recommendation}</div>
+                          <button class="highlight-node" onclick="highlightNode('${issue.nodeId}')">Highlight in Graph</button>
+                        </div>
+                      `).join('')}
+                    </div>
+                  `
+                ).join('')}`
+              }
+            </div>
+          `;
+        }
+      }
+
+      // Update the highlight node function to maintain consistent zoom
+      window.highlightNode = function(nodeId) {
+        // Remove previous highlights
+        d3.selectAll('.node').classed('highlighted', false);
+        
+        // Find and highlight the node
+        d3.selectAll('.node').each(function(d) {
+          const stats = window.currentAnalysis?.nodeStats?.get(d);
+          if (stats && stats.id === nodeId) {
+            d3.select(this).classed('highlighted', true);
+            
+            // Calculate the center point we want to zoom to
+            const scale = 1.5; // Fixed zoom level
+            const x = d.x;
+            const y = d.y;
+            
+            const targetX = width / 2 - x * scale;
+            const targetY = height / 2 - y * scale;
+            
+            // Animate the transition
+            svg.transition()
+              .duration(750)
+              .call(
+                zoom.transform,
+                d3.zoomIdentity
+                  .translate(targetX, targetY)
+                  .scale(scale)
+              );
+          }
+        });
+      };
+
+      // --- Stats Computation ---
+      function computeStats(root) {
+        const allNodes = root.descendants();
+        const totalNodes = allNodes.length;
+        // Count join nodes (case-insensitive match on node name)
+        const joinNodes = allNodes.filter(d => /join/i.test(d.data["Node Type"])).length;
+        // Count nodes with type "ReadFromMergeTree" as tables referenced
+        const tableNodes = allNodes.filter(d => d.data["Node Type"] === "ReadFromMergeTree");
+        const totalTables = tableNodes.length;
+        // Sum granules only from ReadFromMergeTree nodes
+        const totalGranules = tableNodes.reduce((sum, node) => {
+          const selectedGranules = node.data.Indexes?.[0]?.["Selected Granules"] || 0;
+          return sum + selectedGranules;
+        }, 0);
+        return { totalNodes, joinNodes, totalTables, totalGranules };
+      }
+    })();
+  </script>
+</body>
+</html>

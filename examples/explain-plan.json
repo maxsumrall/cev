@@ -1,0 +1,180 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Expression",
+      "Description": "Project names",
+      "Plans": [
+        {
+          "Node Type": "Distinct",
+          "Description": "DISTINCT",
+          "Plans": [
+            {
+              "Node Type": "Distinct",
+              "Description": "Preliminary DISTINCT",
+              "Plans": [
+                {
+                  "Node Type": "Expression",
+                  "Description": "Projection",
+                  "Plans": [
+                    {
+                      "Node Type": "Window",
+                      "Description": "Window step for window 'ORDER BY __table1.event_time ASC'",
+                      "Plans": [
+                        {
+                          "Node Type": "Sorting",
+                          "Description": "Sorting for window 'ORDER BY __table1.event_time ASC'",
+                          "Plans": [
+                            {
+                              "Node Type": "Union",
+                              "Plans": [
+                                {
+                                  "Node Type": "Expression",
+                                  "Description": "(Before WINDOW + (Change column names to column identifiers + (Conversion before UNION + Project names)))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Distinct",
+                                      "Description": "DISTINCT",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Distinct",
+                                          "Description": "Preliminary DISTINCT",
+                                          "Plans": [
+                                            {
+                                              "Node Type": "Expression",
+                                              "Description": "Projection",
+                                              "Plans": [
+                                                {
+                                                  "Node Type": "Filter",
+                                                  "Description": "(WHERE + DROP unused columns after JOIN)",
+                                                  "Plans": [
+                                                    {
+                                                      "Node Type": "Join",
+                                                      "Description": "JOIN FillRightFirst",
+                                                      "Plans": [
+                                                        {
+                                                          "Node Type": "Expression",
+                                                          "Description": "(Change column names to column identifiers + (Project names + (Projection + Change column names to column identifiers)))",
+                                                          "Plans": [
+                                                            {
+                                                              "Node Type": "ReadFromStorage",
+                                                              "Description": "SystemOne"
+                                                            }
+                                                          ]
+                                                        },
+                                                        {
+                                                          "Node Type": "Expression",
+                                                          "Description": "(Change column names to column identifiers + (Project names + Projection))",
+                                                          "Plans": [
+                                                            {
+                                                              "Node Type": "Aggregating",
+                                                              "Plans": [
+                                                                {
+                                                                  "Node Type": "Expression",
+                                                                  "Description": "(Before GROUP BY + (Change column names to column identifiers + (Project names + Projection)))",
+                                                                  "Plans": [
+                                                                    {
+                                                                      "Node Type": "Aggregating",
+                                                                      "Plans": [
+                                                                        {
+                                                                          "Node Type": "Expression",
+                                                                          "Description": "Before GROUP BY",
+                                                                          "Plans": [
+                                                                            {
+                                                                              "Node Type": "Expression",
+                                                                              "Plans": [
+                                                                                {
+                                                                                  "Node Type": "ReadFromMergeTree",
+                                                                                  "Description": "models.delivery_demand_forecast_machine_learning",
+                                                                                  "Indexes": [
+                                                                                    {
+                                                                                      "Type": "PrimaryKey",
+                                                                                      "Keys": [
+                                                                                        "site_id"
+                                                                                      ],
+                                                                                      "Condition": "(site_id in ['BHT', 'BHT'])",
+                                                                                      "Initial Parts": 4,
+                                                                                      "Selected Parts": 4,
+                                                                                      "Initial Granules": 70,
+                                                                                      "Selected Granules": 18
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Expression",
+                                  "Description": "(Before WINDOW + (Change column names to column identifiers + (Conversion before UNION + (Project names + (Projection + (Change column names to column identifiers + (Project names + Projection)))))))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Aggregating",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Expression",
+                                          "Description": "Before GROUP BY",
+                                          "Plans": [
+                                            {
+                                              "Node Type": "Expression",
+                                              "Plans": [
+                                                {
+                                                  "Node Type": "ReadFromMergeTree",
+                                                  "Description": "models.delivery_demand_forecast_machine_learning",
+                                                  "Indexes": [
+                                                    {
+                                                      "Type": "PrimaryKey",
+                                                      "Keys": [
+                                                        "site_id"
+                                                      ],
+                                                      "Condition": "(site_id in ['BHT', 'BHT'])",
+                                                      "Initial Parts": 4,
+                                                      "Selected Parts": 4,
+                                                      "Initial Granules": 70,
+                                                      "Selected Granules": 18
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
